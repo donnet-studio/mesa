@@ -305,12 +305,8 @@
           <button type="button" data-role="Diseñador">Diseñador</button>
         </div>
       </div>
-      <div class="field">
-        <label>Empresa o marca</label>
-        <input id="su-company" placeholder="Ej: Estudio Norte" />
-      </div>
       <div class="field hidden" id="su-key-field">
-        <label>Clave de equipo</label>
+        <label id="su-key-label">Clave de equipo</label>
         <input id="su-key" type="password" autocomplete="off" />
       </div>
       <div id="su-err" class="err-text hidden"></div>
@@ -766,7 +762,7 @@ function renderUserChip(){
   document.getElementById('user-name').textContent = profile.name;
   document.getElementById('user-meta').textContent = `${profile.role} · ${profile.company}`;
   document.getElementById('topbar-client').textContent = client.name;
-  document.getElementById('panel-link').classList.toggle('hidden', !(isTeam(profile.role) && teamUnlocked()));
+  document.getElementById('panel-link').classList.toggle('hidden', !(profile.role === 'donnet.' && teamUnlocked()));
 }
 
 function renderAll(){
@@ -1345,7 +1341,7 @@ function commentCardHtml(c, stage){
       <div style="flex:1;min-width:0;">
         <div class="author-line">
           <span class="author-name">${esc(c.author.name)}</span>
-          <span class="author-meta">${esc(c.author.role)} · ${esc(c.author.company)}</span>
+          <span class="author-meta">${esc(c.author.role)} · ${esc(isTeam(c.author.role) ? 'donnet.' : c.author.company)}</span>
           ${pinNum ? `<span class="pin-tag">📍 ${pinNum}</span>` : ''}
         </div>
         <div class="date">${formatDate(c.createdAt)}</div>
@@ -1648,6 +1644,7 @@ function renderPanel(){
       <div style="flex:1;min-width:180px;">
         <div class="pname">${esc(c.name)}</div>
         <div class="pmeta">${c.total_pubs} publicaciones · ${c.total_ads} publicidades por mes</div>
+        <div class="pmeta">Clave de diseño para esta marca: <strong style="color:var(--ink);letter-spacing:1px;">${esc(designKey(c.id))}</strong></div>
       </div>
       <button data-action="panel-edit" data-id="${esc(c.id)}">Editar</button>
       <button data-action="panel-copy" data-id="${esc(c.id)}">🔗 Copiar link</button>
@@ -1704,13 +1701,30 @@ document.getElementById('gate-submit').addEventListener('click', () => {
 
 /* ---------------- setup screen wiring ---------------- */
 let selectedRole = 'Cliente';
+/* Access rules:
+   - "donnet." needs CLAVE_EQUIPO (also opens the clients panel).
+   - "Diseñador" needs the design key of THIS client only (shown in the panel); it never opens the panel.
+   - Nobody types a company: team shows as "donnet.", the client shows as the brand name. */
+function designKey(cid){
+  let h = 2166136261; const s = CLAVE_EQUIPO + '|' + cid;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return ('000000' + h.toString(36)).slice(-6);
+}
+function designUnlocked(cid){ try { return localStorage.getItem('dn_design_' + cid) === '1'; } catch(e){ return false; } }
+function roleAllowed(role){
+  if (role === 'donnet.') return teamUnlocked();
+  if (role === 'Diseñador') return teamUnlocked() || designUnlocked(client.id);
+  return true;
+}
+function companyFor(role){ return isTeam(role) ? 'donnet.' : client.name; }
 function applyRoleToSetup(){
   Array.from(document.querySelectorAll('#su-role-toggle button')).forEach(b => b.classList.toggle('active', b.dataset.role === selectedRole));
-  const company = document.getElementById('su-company');
-  if (selectedRole === 'Cliente') company.value = client ? client.name : '';
-  else if (selectedRole === 'donnet.') company.value = 'donnet.';
-  else company.value = '';
-  document.getElementById('su-key-field').classList.toggle('hidden', !isTeam(selectedRole) || teamUnlocked());
+  document.getElementById('su-key-field').classList.toggle('hidden', roleAllowed(selectedRole));
+  document.getElementById('su-key').value = '';
+  let label = selectedRole === 'Diseñador' ? 'Clave de diseño de esta marca' : 'Clave de equipo';
+  if (window.__DEMO_CLIENT) label += ' (en esta demo: ' + (selectedRole === 'Diseñador' ? designKey(client.id) : CLAVE_EQUIPO) + ')';
+  document.getElementById('su-key-label').textContent = label;
+  document.getElementById('su-err').classList.add('hidden');
 }
 document.getElementById('su-role-toggle').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-role]');
@@ -1720,14 +1734,16 @@ document.getElementById('su-role-toggle').addEventListener('click', (e) => {
 });
 document.getElementById('su-submit').addEventListener('click', () => {
   const name = document.getElementById('su-name').value.trim();
-  const company = document.getElementById('su-company').value.trim();
   const errEl = document.getElementById('su-err');
-  if (!name || !company) { errEl.textContent = 'Completá tu nombre y tu empresa o marca.'; errEl.classList.remove('hidden'); return; }
-  if (isTeam(selectedRole) && !teamUnlocked()) {
-    if (document.getElementById('su-key').value !== CLAVE_EQUIPO) { errEl.textContent = 'Para entrar como equipo necesitás la clave de equipo.'; errEl.classList.remove('hidden'); return; }
-    unlockTeam();
+  const fail = msg => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+  if (!name) { fail('Completá tu nombre.'); return; }
+  if (!roleAllowed(selectedRole)) {
+    const key = document.getElementById('su-key').value.trim();
+    if (key === CLAVE_EQUIPO) unlockTeam();
+    else if (selectedRole === 'Diseñador' && key.toLowerCase() === designKey(client.id)) { try { localStorage.setItem('dn_design_' + client.id, '1'); } catch(e){} }
+    else { fail(selectedRole === 'Diseñador' ? 'Esa no es la clave de diseño de esta marca.' : 'Esa no es la clave de equipo.'); return; }
   }
-  profile = { name, role: selectedRole, company };
+  profile = { name, role: selectedRole, company: companyFor(selectedRole) };
   saveProfileLocal(profile);
   startApp();
 });
@@ -1755,8 +1771,13 @@ async function bootClient(cid){
   document.title = client.name + ' · donnet.';
   document.getElementById('su-client').textContent = client.name;
   profile = loadProfile();
-  if (profile) { startApp(); }
-  else { selectedRole = 'Cliente'; applyRoleToSetup(); showScreen('setup-screen'); }
+  const allowed = profile && roleAllowed(profile.role); // a designer only gets into the brands they have the key for
+  if (allowed) { profile.company = companyFor(profile.role); startApp(); }
+  else {
+    document.getElementById('su-name').value = profile ? (profile.name || '') : '';
+    selectedRole = profile ? profile.role : 'Cliente'; profile = null;
+    applyRoleToSetup(); showScreen('setup-screen');
+  }
 }
 async function startApp(){
   showScreen('app-root');
