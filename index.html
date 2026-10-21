@@ -969,10 +969,15 @@ function renderCarouselNav(){
   const idx = ids.indexOf(selectedPubId);
   let html = `<button class="nav-arrow" data-action="nav-pub" data-dir="-1" ${idx<=0?'disabled':''}>‹</button>`;
   ids.forEach((id, i) => {
+    // Dot = status of the stage that is currently in play: Etapa 1 until it's approved, then Diseño.
     const s1 = stageStatus(id, 1), s2 = stageStatus(id, 2);
-    const color = STATUS_META[s2] ? STATUS_META[s2].color : STATUS_META.sin_revisar.color;
-    html += `<button class="tab ${id===selectedPubId?'active':''}" data-action="select-pub" data-id="${id}">
-      <span class="dot" style="background:${color}"></span>${i+1}
+    const onDesign = s1 === 'validado';
+    const st = onDesign ? s2 : s1;
+    const meta = STATUS_META[st] || STATUS_META.sin_revisar;
+    const label = onDesign ? (st === 'validado' ? 'Diseño validado' : `Diseño · ${meta.fileLabel || meta.label}`)
+                           : `Etapa 1 · ${meta.fileLabel || meta.label}`;
+    html += `<button class="tab ${id===selectedPubId?'active':''}" data-action="select-pub" data-id="${id}" title="${esc(label)}">
+      <span class="dot" style="background:${meta.color}"></span>${i+1}
     </button>`;
   });
   html += `<button class="nav-arrow" data-action="nav-pub" data-dir="1" ${idx>=ids.length-1?'disabled':''}>›</button>`;
