@@ -13,7 +13,7 @@
     --panel:#FFFFFF; --ink:#150E10; --inkSoft:#5E5053; --inkFaint:#9A8C8F; --line:#EADFE1;
     --accent:#FF6B6B; --accentDark:#C8414B; --accentSoft:#F5D9DF; --accentText:#150E10; --rose:#FF9CB8;
     --danger:#B3261E; --viewerBg:#1F1416; --viewerLine:#3A2A2D;
-    --st-sin:#9496A3; --st-req:#F0730A; --st-proc:#38BDF8; --st-real:#FACC15; --st-val:#22C55E; --st-rev:#8B5CF6;
+    --st-sin:#9496A3; --st-req:#F0730A; --st-proc:#38BDF8; --st-real:#FACC15; --st-val:#22C55E; --st-rev:#8B5CF6; --st-apd:#C9A13B;
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--canvas);color:var(--ink);font-weight:400;font-family:'Outfit',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;}
@@ -803,12 +803,13 @@ function renderViewTabs(){
 function renderDashboard(){
   const el = document.getElementById('dashboard-view');
   const allIds = [...idsForSection('organic'), ...idsForSection('ads')];
-  const counts = { sin_revisar: 0, requiere_cambios: 0, en_proceso: 0, cambios_realizados: 0, validado: 0 };
+  const counts = { sin_revisar: 0, aprobado_disenar: 0, requiere_cambios: 0, en_proceso: 0, cambios_realizados: 0, validado: 0 };
   let doneCount = 0;
   allIds.forEach(id => {
     const pub = publications[id];
     if (!pub) return;
-    const relevant = pub.stage1.status !== 'validado' ? pub.stage1.status : pub.stage2.status;
+    const s1v = pub.stage1.status === 'validado', s2s = pub.stage2.status || 'sin_revisar';
+    const relevant = !s1v ? (pub.stage1.status || 'sin_revisar') : (s2s === 'sin_revisar' ? 'aprobado_disenar' : s2s);
     counts[relevant] = (counts[relevant] || 0) + 1;
     if (pub.stage1.status === 'validado' && pub.stage2.status === 'validado') doneCount++;
   });
@@ -821,11 +822,14 @@ function renderDashboard(){
     <div class="dash-progress"><div class="fill" style="width:${pct}%;"></div></div>
     <div class="summary-line" style="margin-bottom:20px;">${pct}% del mes cerrado</div>
     <div class="dash-grid">
-      ${STATUS_ORDER.concat('sin_revisar').map(s => `
+      ${['para_revision', 'requiere_cambios', 'en_proceso', 'cambios_realizados', 'aprobado_disenar', 'validado', 'sin_revisar'].map(s => {
+        const meta = s === 'aprobado_disenar' ? APROBADO_DISENO_META : STATUS_META[s];
+        const lbl = s === 'validado' ? 'Validado (idea y diseño)' : (meta.fileLabel || meta.label);
+        return `
         <div class="dash-card">
-          <div class="num" style="color:${STATUS_META[s].color}">${counts[s] || 0}</div>
-          <div class="lbl">${STATUS_META[s].fileLabel || STATUS_META[s].label}</div>
-        </div>`).join('')}
+          <div class="num" style="color:${meta.color}">${counts[s] || 0}</div>
+          <div class="lbl">${lbl}</div>
+        </div>`; }).join('')}
     </div>
     <div style="font-size:15px;font-weight:700;margin-bottom:10px;">Publicaciones (${monthTotals().pubs})</div>
     ${dashboardRows(idsForSection('organic'))}
@@ -973,9 +977,11 @@ function renderCarouselNav(){
     const s1 = stageStatus(id, 1), s2 = stageStatus(id, 2);
     const onDesign = s1 === 'validado';
     const st = onDesign ? s2 : s1;
-    const meta = STATUS_META[st] || STATUS_META.sin_revisar;
-    const label = onDesign ? (st === 'validado' ? 'Diseño validado' : `Diseño · ${meta.fileLabel || meta.label}`)
-                           : `Etapa 1 · ${meta.fileLabel || meta.label}`;
+    const waitingDesign = onDesign && st === 'sin_revisar'; // idea approved, design not started yet
+    const meta = waitingDesign ? APROBADO_DISENO_META : (STATUS_META[st] || STATUS_META.sin_revisar);
+    const label = waitingDesign ? 'Etapa 1 · Aprobado para diseñar'
+                : onDesign ? (st === 'validado' ? 'Diseño validado' : `Diseño · ${meta.fileLabel || meta.label}`)
+                : `Etapa 1 · ${meta.fileLabel || meta.label}`;
     html += `<button class="tab ${id===selectedPubId?'active':''}" data-action="select-pub" data-id="${id}" title="${esc(label)}">
       <span class="dot" style="background:${meta.color}"></span>${i+1}
     </button>`;
@@ -1105,14 +1111,19 @@ function renderPubContent(){
 }
 
 function validadoLabelFor(stage){ return stage === 1 ? 'Aprobado para diseñar' : 'Validado'; }
+const APROBADO_DISENO_META = { label: 'Aprobado para diseñar', fileLabel: 'Aprobado para diseñar', color: 'var(--st-apd)', fg: '#3B2C06', ownerType: 'cliente' };
+function metaFor(status, stage){
+  if (status === 'validado' && stage === 1) return APROBADO_DISENO_META;
+  return STATUS_META[status] || STATUS_META.sin_revisar;
+}
 function badgeHtml(status, fileContext, stage){
-  const m = STATUS_META[status] || STATUS_META.sin_revisar;
+  const m = metaFor(status, stage);
   const label = status === 'validado' && stage === 1 ? validadoLabelFor(1) : (fileContext && m.fileLabel ? m.fileLabel : m.label);
   return `<span class="badge" style="background:${m.color};color:${m.fg}">${label}</span>`;
 }
 function statusBarHtml(stage, current){
   if (current === 'validado') {
-    const m = STATUS_META.validado;
+    const m = metaFor('validado', stage);
     const label = validadoLabelFor(stage);
     return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <span class="badge" style="background:${m.color};color:${m.fg};">🔒 ${label}</span>
@@ -1120,7 +1131,7 @@ function statusBarHtml(stage, current){
     </div>`;
   }
   return STATUS_ORDER.map(s => {
-    const meta = STATUS_META[s];
+    const meta = metaFor(s, stage);
     const label = s === 'validado' ? validadoLabelFor(stage) : (meta.fileLabel || meta.label);
     const active = current === s;
     const mine = statusOwnedByMe(meta.ownerType);
